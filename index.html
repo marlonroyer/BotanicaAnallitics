@@ -1876,64 +1876,85 @@ function createPeopleTable(containerId, data, total, firstColumn) {
 async function loadFloraChecklist() {
     if (state.floraCache) return state.floraCache;
     
-    try {
-        // URL correta do dataset (sem o &v= que estava quebrando)
-        const url = 'https://ipt.jbrj.gov.br/jbrj/archive.do?r=lista_especies_flora_brasil';
-        
-        console.log('Baixando checklist da Flora do Brasil...');
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error('Erro ao carregar checklist: ' + response.status);
-        }
-        
-        const text = await response.text();
-        const lines = text.split('\n');
-        
-        const cache = {};
-        let processedCount = 0;
-        
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
+    // Lista de proxies CORS públicos para tentar
+    const proxyUrls = [
+        'https://api.allorigins.win/raw?url=',
+        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest='
+    ];
+    
+    // URL do checklist da Flora do Brasil
+    const targetUrl = 'https://ipt.jbrj.gov.br/jbrj/archive.do?r=lista_especies_flora_brasil';
+    
+    for (const proxyUrl of proxyUrls) {
+        try {
+            const url = proxyUrl + encodeURIComponent(targetUrl);
+            console.log('Tentando proxy:', proxyUrl);
             
-            const cols = line.split('\t');
-            if (cols.length < 5) continue;
+            const response = await fetch(url);
             
-            const taxonName = clean(cols[0]);
-            const taxonomicStatus = clean(cols[1]);
-            const acceptedName = cols[2] ? clean(cols[2]) : taxonName;
-            const family = clean(cols[3]);
-            const origin = clean(cols[4]);
-            
-            if (taxonName && taxonomicStatus) {
-                cache[taxonName.toLowerCase()] = {
-                    name: taxonName,
-                    status: taxonomicStatus,
-                    acceptedName: acceptedName,
-                    family: family,
-                    origin: origin
-                };
-                processedCount++;
+            if (!response.ok) {
+                console.warn('Proxy falhou:', proxyUrl, response.status);
+                continue;
             }
+            
+            const text = await response.text();
+            
+            // Verifica se o texto parece ser um checklist válido
+            if (!text.includes('\t') || text.length < 1000) {
+                console.warn('Resposta não parece ser um checklist válido');
+                continue;
+            }
+            
+            console.log('Checklist baixado com sucesso via proxy:', proxyUrl);
+            
+            const cache = {};
+            const lines = text.split('\n');
+            let processedCount = 0;
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const cols = line.split('\t');
+                if (cols.length < 5) continue;
+                
+                const taxonName = clean(cols[0]);
+                const taxonomicStatus = clean(cols[1]);
+                const acceptedName = cols[2] ? clean(cols[2]) : taxonName;
+                const family = clean(cols[3]);
+                const origin = clean(cols[4]);
+                
+                if (taxonName && taxonomicStatus) {
+                    cache[taxonName.toLowerCase()] = {
+                        name: taxonName,
+                        status: taxonomicStatus,
+                        acceptedName: acceptedName,
+                        family: family,
+                        origin: origin
+                    };
+                    processedCount++;
+                }
+            }
+            
+            if (processedCount > 0) {
+                console.log('Flora do Brasil carregada:', processedCount, 'registros');
+                state.floraCache = cache;
+                return cache;
+            }
+        } catch (error) {
+            console.warn('Erro com proxy:', proxyUrl, error.message);
         }
-        
-        console.log('Flora do Brasil carregada:', processedCount, 'registros');
-        state.floraCache = cache;
-        return cache;
-        
-    } catch (error) {
-        console.error('Erro ao carregar Flora do Brasil:', error);
-        throw new Error(
-            'Não foi possível carregar o checklist da Flora do Brasil.\n\n' +
-            'Possíveis causas:\n' +
-            '• Se estiver abrindo o arquivo localmente (file://), o navegador bloqueia a requisição\n' +
-            '• Solução: use um servidor local (Python: python -m http.server 8000)\n' +
-            '• Ou publique no GitHub Pages (https://SEU-USUARIO.github.io/repositorio/)\n' +
-            '• O servidor do JBRJ pode estar temporariamente fora do ar\n\n' +
-            'Erro técnico: ' + error.message
-        );
     }
+    
+    throw new Error(
+        'Não foi possível carregar o checklist da Flora do Brasil.\n\n' +
+        'Possíveis causas:\n' +
+        '• Todos os serviços de proxy estão indisponíveis no momento\n' +
+        '• O servidor do JBRJ está fora do ar\n' +
+        '• Sua conexão com a internet está instável\n\n' +
+        'Tente novamente em alguns minutos.'
+    );
 }
 
 async function validateAgainstFlora() {
